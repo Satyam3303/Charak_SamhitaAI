@@ -18,7 +18,7 @@ TOP_K = 5  # number of chunks to retrieve
 # On local: set GEMINI_API_KEY as environment variable
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+gemini_model = genai.GenerativeModel("gemini-2.0-flash")
 
 # Load once globally (so Streamlit doesn't reload on every query)
 print("🔄 Loading embedding model...")
