@@ -1,26 +1,25 @@
 """
 RAG Query Engine for Charak Samhita AI
-Uses Google Gemini (free) for cloud deployment on Streamlit Cloud
+Uses Groq (completely free, no limits) for cloud deployment
 """
 
 import os
 import chromadb
 from sentence_transformers import SentenceTransformer
-import google.generativeai as genai
+from groq import Groq
 
 DB_PATH = "./charak_db"
 COLLECTION_NAME = "charak_samhita"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+GROQ_MODEL = "llama-3.3-70b-versatile"  # free, fast, powerful
 TOP_K = 5  # number of chunks to retrieve
 
-# Configure Gemini API
-# On Streamlit Cloud: set GEMINI_API_KEY in app secrets
-# On local: set GEMINI_API_KEY as environment variable
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel("gemini-2.0-flash")
+# Configure Groq API
+# On Streamlit Cloud: set GROQ_API_KEY in app secrets
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+groq_client = Groq(api_key=GROQ_API_KEY)
 
-# Load once globally (so Streamlit doesn't reload on every query)
+# Load once globally
 print("🔄 Loading embedding model...")
 _embedding_model = SentenceTransformer(EMBEDDING_MODEL)
 
@@ -28,7 +27,7 @@ print("🗄️ Connecting to ChromaDB...")
 _chroma_client = chromadb.PersistentClient(path=DB_PATH)
 _collection = _chroma_client.get_collection(COLLECTION_NAME)
 
-print("✅ RAG Engine ready!")
+print("✅ RAG Engine ready! (Powered by Groq - free & fast)")
 
 SYSTEM_PROMPT = """You are an expert Ayurvedic scholar specializing in Charak Samhita — one of the foundational texts of Ayurveda.
 
@@ -46,13 +45,13 @@ def ask_charak(question: str) -> dict:
     Main RAG function:
     1. Embed the question
     2. Find relevant chunks from Charak Samhita
-    3. Ask Gemini with context
+    3. Ask Groq LLaMA with context
     4. Return answer + sources
     """
 
-    if not GEMINI_API_KEY:
+    if not GROQ_API_KEY:
         return {
-            "answer": "⚠️ Gemini API key is not set. Please add GEMINI_API_KEY in your Streamlit secrets or environment variables. Get a free key from https://aistudio.google.com",
+            "answer": "⚠️ Groq API key is not set. Please add GROQ_API_KEY in your Streamlit secrets. Get a free key from https://console.groq.com",
             "sources": [],
             "chunks_used": 0
         }
@@ -76,10 +75,13 @@ def ask_charak(question: str) -> dict:
 
     sources = list({m["title"] for m in metadatas})
 
-    # Step 3: Build prompt
-    full_prompt = f"""{SYSTEM_PROMPT}
-
-Here are relevant passages from Charak Samhita:
+    # Step 3: Ask Groq
+    try:
+        response = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": f"""Here are relevant passages from Charak Samhita:
 
 {context}
 
@@ -87,14 +89,15 @@ Here are relevant passages from Charak Samhita:
 
 Question: {question}
 
-Please answer based on the above context from Charak Samhita."""
+Please answer based on the above context from Charak Samhita."""}
+            ],
+            max_tokens=1500,
+            temperature=0.3
+        )
+        answer = response.choices[0].message.content
 
-    # Step 4: Ask Gemini
-    try:
-        response = gemini_model.generate_content(full_prompt)
-        answer = response.text
     except Exception as e:
-        answer = f"⚠️ Error getting response from Gemini: {str(e)}\n\nMake sure your GEMINI_API_KEY is correct."
+        answer = f"⚠️ Error getting response from Groq: {str(e)}\n\nMake sure your GROQ_API_KEY is correct."
 
     return {
         "answer": answer,
@@ -105,8 +108,8 @@ Please answer based on the above context from Charak Samhita."""
 
 # Quick test from command line
 if __name__ == "__main__":
-    print("\n🌿 Charak Samhita AI - Test Mode")
-    print("Make sure GEMINI_API_KEY is set as environment variable")
+    print("\n🌿 Charak Samhita AI - Test Mode (Groq)")
+    print("Make sure GROQ_API_KEY is set as environment variable")
     print("Type 'exit' to quit\n")
 
     while True:

@@ -128,7 +128,7 @@ if question:
                 })
 
             except Exception as e:
-                error_msg = f"⚠️ Error: {str(e)}\n\nMake sure GEMINI_API_KEY is set in Streamlit secrets."
+                error_msg = f"⚠️ Error: {str(e)}\n\nMake sure GROQ_API_KEY is set in Streamlit secrets."
                 st.error(error_msg)
 
 # --- Disclaimer ---
@@ -143,7 +143,7 @@ st.markdown("""
 # --- Sidebar ---
 with st.sidebar:
     st.markdown("## ⚙️ Settings")
-    st.success("✅ Powered by Google Gemini (Free AI)")
+    st.success("✅ Powered by Groq (Free & Fast AI)")
 
     st.markdown("---")
     st.markdown("## 📖 About")
@@ -156,7 +156,7 @@ with st.sidebar:
     **Technology:**
     - 🔍 RAG (Retrieval-Augmented Generation)
     - 🗄️ ChromaDB vector database
-    - 🤖 Google Gemini 1.5 Flash (free)
+    - 🤖 Groq LLaMA 3.3 70B (free)
     """)
 
     if st.button("🗑️ Clear Chat"):
