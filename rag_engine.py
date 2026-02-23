@@ -11,13 +11,8 @@ from groq import Groq
 DB_PATH = "./charak_db"
 COLLECTION_NAME = "charak_samhita"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-GROQ_MODEL = "llama-3.3-70b-versatile"  # free, fast, powerful
-TOP_K = 5  # number of chunks to retrieve
-
-# Configure Groq API
-# On Streamlit Cloud: set GROQ_API_KEY in app secrets
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-groq_client = Groq(api_key=GROQ_API_KEY)
+GROQ_MODEL = "llama-3.3-70b-versatile"
+TOP_K = 5
 
 # Load once globally
 print("🔄 Loading embedding model...")
@@ -49,12 +44,18 @@ def ask_charak(question: str) -> dict:
     4. Return answer + sources
     """
 
-    if not GROQ_API_KEY:
+    # Get API key fresh every call (fixes Streamlit Cloud loading issue)
+    groq_api_key = os.environ.get("GROQ_API_KEY", "")
+
+    if not groq_api_key:
         return {
             "answer": "⚠️ Groq API key is not set. Please add GROQ_API_KEY in your Streamlit secrets. Get a free key from https://console.groq.com",
             "sources": [],
             "chunks_used": 0
         }
+
+    # Initialize Groq client inside function (avoids startup errors)
+    groq_client = Groq(api_key=groq_api_key)
 
     # Step 1: Embed the question
     q_embedding = _embedding_model.encode(question).tolist()
