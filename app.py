@@ -1,7 +1,12 @@
-"""
-STEP 4: Streamlit Web App for Charak Samhita AI
-Run: streamlit run app.py
-"""
+import zipfile
+import os
+
+# Unzip charak_db if not already unzipped
+if not os.path.exists("./charak_db"):
+    print("📦 Unzipping charak_db...")
+    with zipfile.ZipFile("charak_db.zip", "r") as zip_ref:
+        zip_ref.extractall(".")
+    print("✅ charak_db unzipped!")
 
 import streamlit as st
 from rag_engine import ask_charak
@@ -123,7 +128,7 @@ if question:
                 })
 
             except Exception as e:
-                error_msg = f"⚠️ Error: {str(e)}\n\nMake sure Ollama is running! Run: ollama serve"
+                error_msg = f"⚠️ Error: {str(e)}\n\nMake sure GEMINI_API_KEY is set in Streamlit secrets."
                 st.error(error_msg)
 
 # --- Disclaimer ---
@@ -138,7 +143,7 @@ st.markdown("""
 # --- Sidebar ---
 with st.sidebar:
     st.markdown("## ⚙️ Settings")
-    st.success("✅ Running FREE with Ollama\n\n(Local AI — no API key needed!)")
+    st.success("✅ Powered by Google Gemini (Free AI)")
 
     st.markdown("---")
     st.markdown("## 📖 About")
@@ -151,8 +156,7 @@ with st.sidebar:
     **Technology:**
     - 🔍 RAG (Retrieval-Augmented Generation)
     - 🗄️ ChromaDB vector database
-    - 🤖 Ollama (free, local LLM)
-    - 🧠 LLaMA 3.2 model
+    - 🤖 Google Gemini 1.5 Flash (free)
     """)
 
     if st.button("🗑️ Clear Chat"):
