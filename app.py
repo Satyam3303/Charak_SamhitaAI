@@ -1,12 +1,15 @@
-import zipfile
 import os
+import zipfile
 
-# Unzip charak_db if not already unzipped
+# Unzip charak_db BEFORE importing rag_engine
 if not os.path.exists("./charak_db"):
-    print("📦 Unzipping charak_db...")
-    with zipfile.ZipFile("charak_db.zip", "r") as zip_ref:
-        zip_ref.extractall(".")
-    print("✅ charak_db unzipped!")
+    if os.path.exists("charak_db.zip"):
+        print("Unzipping charak_db.zip...")
+        with zipfile.ZipFile("charak_db.zip", "r") as z:
+            z.extractall(".")
+        print("Done unzipping!")
+    else:
+        print("WARNING: charak_db.zip not found!")
 
 import streamlit as st
 from rag_engine import ask_charak
@@ -38,13 +41,6 @@ st.markdown("""
         padding: 4px 12px;
         margin: 4px;
         font-size: 0.85em;
-    }
-    .answer-box {
-        background: #fafafa;
-        border-left: 4px solid #4caf50;
-        padding: 20px;
-        border-radius: 8px;
-        margin: 15px 0;
     }
     .disclaimer {
         background: #fff8e1;
@@ -83,9 +79,9 @@ for msg in st.session_state.messages:
 if not st.session_state.messages:
     st.markdown("### 💡 Try asking:")
     examples = [
-        "What does Charak Samhita say about Vata dosha?",
-        "What are the properties of Ashwagandha according to Charak?",
-        "How does Charak Samhita describe the daily routine (Dinacharya)?",
+        "What is the literal meaning of Deerghanjiviteeya Adhyaya?",
+        "Who was Bharadwaja and why did he approach Indra?",
+        "What is the divine lineage of Ayurveda?",
         "What are the causes of disease according to Charak Samhita?",
         "Explain Panchakarma as described in Charak Samhita"
     ]
@@ -95,19 +91,17 @@ if not st.session_state.messages:
             st.session_state.prefill = example
             st.rerun()
 
-# Handle prefilled question from example buttons
+# Handle prefilled question
 prefill = st.session_state.pop("prefill", "")
 
 # --- Chat Input ---
 question = st.chat_input("Ask a question about Charak Samhita...") or prefill
 
 if question:
-    # Show user message
     st.session_state.messages.append({"role": "user", "content": question})
     with st.chat_message("user"):
         st.markdown(question)
 
-    # Get AI answer
     with st.chat_message("assistant"):
         with st.spinner("🔍 Searching Charak Samhita..."):
             try:
@@ -120,7 +114,6 @@ if question:
                 source_html = "".join([f'<span class="source-tag">{s}</span>' for s in sources])
                 st.markdown(source_html, unsafe_allow_html=True)
 
-                # Save to history
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": answer,
@@ -128,15 +121,13 @@ if question:
                 })
 
             except Exception as e:
-                error_msg = f"⚠️ Error: {str(e)}\n\nMake sure GROQ_API_KEY is set in Streamlit secrets."
-                st.error(error_msg)
+                st.error(f"Error: {str(e)}")
 
 # --- Disclaimer ---
 st.markdown("""
 <div class="disclaimer">
-    ⚕️ <strong>Disclaimer:</strong> This AI is for educational purposes only. 
-    Information is sourced from Charak Samhita. Always consult a qualified 
-    Ayurvedic physician (Vaidya) before following any treatments or remedies.
+    ⚕️ <strong>Disclaimer:</strong> This AI is for educational purposes only.
+    Always consult a qualified Ayurvedic physician (Vaidya) before following any treatments.
 </div>
 """, unsafe_allow_html=True)
 
@@ -144,15 +135,14 @@ st.markdown("""
 with st.sidebar:
     st.markdown("## ⚙️ Settings")
     st.success("✅ Powered by Groq (Free & Fast AI)")
-
     st.markdown("---")
     st.markdown("## 📖 About")
     st.markdown("""
-    This AI is trained on **Charak Samhita** — the foundational 
+    This AI is trained on **Charak Samhita** — the foundational
     Ayurvedic text written by Acharya Charak.
-    
+
     Data source: [carakasamhitaonline.com](https://www.carakasamhitaonline.com)
-    
+
     **Technology:**
     - 🔍 RAG (Retrieval-Augmented Generation)
     - 🗄️ ChromaDB vector database

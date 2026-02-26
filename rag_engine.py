@@ -4,6 +4,7 @@ Uses Groq (completely free, no limits) for cloud deployment
 """
 
 import os
+import zipfile
 import chromadb
 from sentence_transformers import SentenceTransformer
 from groq import Groq
@@ -14,16 +15,57 @@ EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 TOP_K = 5
 
-# Load once globally
-print("🔄 Loading embedding model...")
+# ── Unzip DB if needed ──────────────────────────────────────────────
+if not os.path.exists(DB_PATH):
+    if os.path.exists("charak_db.zip"):
+        print("Unzipping charak_db.zip...")
+        with zipfile.ZipFile("charak_db.zip", "r") as z:
+            z.extractall(".")
+        print("Unzipped successfully!")
+    else:
+        print("ERROR: charak_db.zip not found!")
+
+# ── Debug: show what's inside charak_db ─────────────────────────────
+print(f"DB_PATH exists: {os.path.exists(DB_PATH)}")
+if os.path.exists(DB_PATH):
+    for root, dirs, files in os.walk(DB_PATH):
+        level = root.replace(DB_PATH, '').count(os.sep)
+        indent = ' ' * 2 * level
+        print(f"{indent}{os.path.basename(root)}/")
+        for f in files:
+            print(f"{indent}  {f}")
+
+# ── Load embedding model ─────────────────────────────────────────────
+print("Loading embedding model...")
 _embedding_model = SentenceTransformer(EMBEDDING_MODEL)
 
-print("🗄️ Connecting to ChromaDB...")
+# ── Connect to ChromaDB ──────────────────────────────────────────────
+print("Connecting to ChromaDB...")
 _chroma_client = chromadb.PersistentClient(path=DB_PATH)
-_collection = _chroma_client.get_collection(COLLECTION_NAME)
 
-print("✅ RAG Engine ready! (Powered by Groq - free & fast)")
+# List all collections and pick the right one
+available = _chroma_client.list_collections()
+print(f"Available collections: {[c.name for c in available]}")
 
+if len(available) == 0:
+    raise ValueError("No collections found in charak_db! Please re-upload charak_db.zip")
+
+# Use exact match first, otherwise use first available collection
+_collection = None
+for col in available:
+    if col.name == COLLECTION_NAME:
+        _collection = _chroma_client.get_collection(COLLECTION_NAME)
+        print(f"Found collection: {COLLECTION_NAME}")
+        break
+
+if _collection is None:
+    # Use whatever collection exists
+    _collection = _chroma_client.get_collection(available[0].name)
+    print(f"Using collection: {available[0].name}")
+
+print(f"DB loaded! Total items: {_collection.count()}")
+
+# ── System Prompt ────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are an expert Ayurvedic scholar specializing in Charak Samhita — one of the foundational texts of Ayurveda.
 
 Your role:
@@ -36,31 +78,22 @@ Your role:
 
 
 def ask_charak(question: str) -> dict:
-    """
-    Main RAG function:
-    1. Embed the question
-    2. Find relevant chunks from Charak Samhita
-    3. Ask Groq LLaMA with context
-    4. Return answer + sources
-    """
-
-    # Get API key fresh every call (fixes Streamlit Cloud loading issue)
+    # Get API key fresh every call
     groq_api_key = os.environ.get("GROQ_API_KEY", "")
 
     if not groq_api_key:
         return {
-            "answer": "⚠️ Groq API key is not set. Please add GROQ_API_KEY in your Streamlit secrets. Get a free key from https://console.groq.com",
+            "answer": "Groq API key is not set. Please add GROQ_API_KEY in your Streamlit secrets. Get a free key from https://console.groq.com",
             "sources": [],
             "chunks_used": 0
         }
 
-    # Initialize Groq client inside function (avoids startup errors)
     groq_client = Groq(api_key=groq_api_key)
 
-    # Step 1: Embed the question
+    # Embed question
     q_embedding = _embedding_model.encode(question).tolist()
 
-    # Step 2: Retrieve relevant chunks from ChromaDB
+    # Search ChromaDB
     results = _collection.query(
         query_embeddings=[q_embedding],
         n_results=TOP_K
@@ -69,14 +102,14 @@ def ask_charak(question: str) -> dict:
     docs = results["documents"][0]
     metadatas = results["metadatas"][0]
 
-    # Build context from retrieved chunks
     context = "\n\n---\n\n".join(
-        [f"[From: {m['title']}]\n{doc}" for doc, m in zip(docs, metadatas)]
+        [f"[From: {m.get('title', 'Charak Samhita')}]\n{doc}"
+         for doc, m in zip(docs, metadatas)]
     )
 
-    sources = list({m["title"] for m in metadatas})
+    sources = list({m.get("title", "Charak Samhita") for m in metadatas})
 
-    # Step 3: Ask Groq
+    # Ask Groq
     try:
         response = groq_client.chat.completions.create(
             model=GROQ_MODEL,
@@ -98,30 +131,10 @@ Please answer based on the above context from Charak Samhita."""}
         answer = response.choices[0].message.content
 
     except Exception as e:
-        answer = f"⚠️ Error getting response from Groq: {str(e)}\n\nMake sure your GROQ_API_KEY is correct."
+        answer = f"Error getting response from Groq: {str(e)}"
 
     return {
         "answer": answer,
         "sources": sources,
         "chunks_used": len(docs)
     }
-
-
-# Quick test from command line
-if __name__ == "__main__":
-    print("\n🌿 Charak Samhita AI - Test Mode (Groq)")
-    print("Make sure GROQ_API_KEY is set as environment variable")
-    print("Type 'exit' to quit\n")
-
-    while True:
-        question = input("Your question: ").strip()
-        if question.lower() == "exit":
-            break
-        if not question:
-            continue
-
-        result = ask_charak(question)
-        print(f"\n📖 Answer:\n{result['answer']}")
-        print(f"\n📚 Sources: {', '.join(result['sources'])}")
-        print(f"\n🔍 Chunks used: {result['chunks_used']}")
-        print("\n" + "="*60 + "\n")
