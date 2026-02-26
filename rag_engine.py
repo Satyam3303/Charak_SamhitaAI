@@ -9,61 +9,101 @@ import chromadb
 from sentence_transformers import SentenceTransformer
 from groq import Groq
 
-DB_PATH = "./charak_db"
 COLLECTION_NAME = "charak_samhita"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 TOP_K = 5
 
-# ── Unzip DB if needed ──────────────────────────────────────────────
-if not os.path.exists(DB_PATH):
-    if os.path.exists("charak_db.zip"):
-        print("Unzipping charak_db.zip...")
-        with zipfile.ZipFile("charak_db.zip", "r") as z:
-            z.extractall(".")
-        print("Unzipped successfully!")
-    else:
-        print("ERROR: charak_db.zip not found!")
+# ── Step 1: Find & unzip DB ──────────────────────────────────────────
+# Try multiple possible paths where charak_db might be
+POSSIBLE_DB_PATHS = ["./charak_db", "./charak_db/charak_db", "../charak_db"]
+DB_PATH = None
 
-# ── Debug: show what's inside charak_db ─────────────────────────────
-print(f"DB_PATH exists: {os.path.exists(DB_PATH)}")
-if os.path.exists(DB_PATH):
-    for root, dirs, files in os.walk(DB_PATH):
-        level = root.replace(DB_PATH, '').count(os.sep)
-        indent = ' ' * 2 * level
+def find_or_extract_db():
+    global DB_PATH
+
+    # First check if charak_db already exists somewhere
+    for path in POSSIBLE_DB_PATHS:
+        if os.path.exists(path):
+            # Check if it actually has ChromaDB files inside
+            for root, dirs, files in os.walk(path):
+                if any(f.endswith(".sqlite3") or f.endswith(".bin") for f in files):
+                    DB_PATH = path
+                    print(f"Found DB at: {path}")
+                    return
+
+    # Not found — try to unzip
+    zip_paths = ["./charak_db.zip", "../charak_db.zip"]
+    for zip_path in zip_paths:
+        if os.path.exists(zip_path):
+            print(f"Unzipping {zip_path}...")
+            with zipfile.ZipFile(zip_path, "r") as z:
+                # Show zip contents
+                names = z.namelist()
+                print(f"Zip contains: {names[:10]}")
+                z.extractall(".")
+            print("Unzipped!")
+            # Try to find DB again after extraction
+            for path in POSSIBLE_DB_PATHS:
+                if os.path.exists(path):
+                    for root, dirs, files in os.walk(path):
+                        if any(f.endswith(".sqlite3") or f.endswith(".bin") for f in files):
+                            DB_PATH = path
+                            print(f"Found DB at: {path} after unzip")
+                            return
+            break
+
+    # If still not found, use default path
+    if DB_PATH is None:
+        DB_PATH = "./charak_db"
+        print(f"Using default DB path: {DB_PATH}")
+        os.makedirs(DB_PATH, exist_ok=True)
+
+find_or_extract_db()
+
+# ── Step 2: Debug — show full directory structure ────────────────────
+print(f"\nDirectory contents:")
+for item in os.listdir("."):
+    print(f"  {item}")
+
+if os.path.exists("./charak_db"):
+    print(f"\ncharak_db contents:")
+    for root, dirs, files in os.walk("./charak_db"):
+        level = root.replace("./charak_db", "").count(os.sep)
+        indent = "  " * level
         print(f"{indent}{os.path.basename(root)}/")
         for f in files:
             print(f"{indent}  {f}")
 
-# ── Load embedding model ─────────────────────────────────────────────
-print("Loading embedding model...")
+# ── Step 3: Load models ──────────────────────────────────────────────
+print("\nLoading embedding model...")
 _embedding_model = SentenceTransformer(EMBEDDING_MODEL)
 
-# ── Connect to ChromaDB ──────────────────────────────────────────────
-print("Connecting to ChromaDB...")
+# ── Step 4: Connect to ChromaDB ──────────────────────────────────────
+print(f"Connecting to ChromaDB at: {DB_PATH}")
 _chroma_client = chromadb.PersistentClient(path=DB_PATH)
 
-# List all collections and pick the right one
 available = _chroma_client.list_collections()
 print(f"Available collections: {[c.name for c in available]}")
 
 if len(available) == 0:
-    raise ValueError("No collections found in charak_db! Please re-upload charak_db.zip")
+    print("WARNING: No collections found — creating empty one")
+    _collection = _chroma_client.get_or_create_collection(
+        name=COLLECTION_NAME,
+        metadata={"hnsw:space": "cosine"}
+    )
+else:
+    # Use exact match or first available
+    _collection = None
+    for col in available:
+        if col.name == COLLECTION_NAME:
+            _collection = _chroma_client.get_collection(col.name)
+            break
+    if _collection is None:
+        _collection = _chroma_client.get_collection(available[0].name)
+        print(f"Using collection: {available[0].name}")
 
-# Use exact match first, otherwise use first available collection
-_collection = None
-for col in available:
-    if col.name == COLLECTION_NAME:
-        _collection = _chroma_client.get_collection(COLLECTION_NAME)
-        print(f"Found collection: {COLLECTION_NAME}")
-        break
-
-if _collection is None:
-    # Use whatever collection exists
-    _collection = _chroma_client.get_collection(available[0].name)
-    print(f"Using collection: {available[0].name}")
-
-print(f"DB loaded! Total items: {_collection.count()}")
+print(f"DB ready! Total items: {_collection.count()}")
 
 # ── System Prompt ────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are an expert Ayurvedic scholar specializing in Charak Samhita — one of the foundational texts of Ayurveda.
@@ -78,12 +118,18 @@ Your role:
 
 
 def ask_charak(question: str) -> dict:
-    # Get API key fresh every call
     groq_api_key = os.environ.get("GROQ_API_KEY", "")
 
     if not groq_api_key:
         return {
-            "answer": "Groq API key is not set. Please add GROQ_API_KEY in your Streamlit secrets. Get a free key from https://console.groq.com",
+            "answer": "Groq API key is not set. Please add GROQ_API_KEY in Streamlit secrets. Get free key from https://console.groq.com",
+            "sources": [],
+            "chunks_used": 0
+        }
+
+    if _collection.count() == 0:
+        return {
+            "answer": "The database is empty! Please re-upload charak_db.zip to GitHub with the correct contents.",
             "sources": [],
             "chunks_used": 0
         }
@@ -106,10 +152,8 @@ def ask_charak(question: str) -> dict:
         [f"[From: {m.get('title', 'Charak Samhita')}]\n{doc}"
          for doc, m in zip(docs, metadatas)]
     )
-
     sources = list({m.get("title", "Charak Samhita") for m in metadatas})
 
-    # Ask Groq
     try:
         response = groq_client.chat.completions.create(
             model=GROQ_MODEL,
@@ -129,9 +173,8 @@ Please answer based on the above context from Charak Samhita."""}
             temperature=0.3
         )
         answer = response.choices[0].message.content
-
     except Exception as e:
-        answer = f"Error getting response from Groq: {str(e)}"
+        answer = f"Error from Groq: {str(e)}"
 
     return {
         "answer": answer,
